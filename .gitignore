@@ -9,7 +9,7 @@ target/
 spring-shell.log
 
 # ── Secrets / Variables de entorno ───────────────────────────
-!.env
+.env
 !.env.example
 config/application.properties
 
