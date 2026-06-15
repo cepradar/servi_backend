@@ -10,8 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface OrdenDeServicioDetalleRepository extends JpaRepository<OrdenDeServicioDetalle, Long> {
-
+public interface OrdenDeServicioDetalleRepository extends JpaRepository<OrdenDeServicioDetalle, String> {
     /** Todos los detalles de una orden, ordenados por reg_servicio. */
     List<OrdenDeServicioDetalle> findByOrdenDeServicioIdOrderByRegServicio(String ordenDeServicioId);
 

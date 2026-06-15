@@ -14,6 +14,9 @@ public interface UserRepository extends JpaRepository<User, String> {
     
     @Query("SELECT new com.inventory.model.User(u.username, u.password, u.role) FROM User u WHERE u.username = ?1")
     Optional<User> findByUsernameWithoutPicture(String username);
+
+    @Query("SELECT new com.inventory.model.User(u.username, u.password, u.role) FROM User u WHERE UPPER(u.username) = UPPER(?1)")
+    Optional<User> findByUsernameWithoutPictureIgnoreCase(String username);
     
     @Modifying
     @Transactional

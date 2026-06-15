@@ -64,10 +64,10 @@ public class OrdenDeServicio {
     @Column(precision = 10, scale = 2, name = "total_costo")
     private BigDecimal totalCosto = BigDecimal.ZERO;
     
-    /** FK hacia la tabla ciudades (código DANE). Nullable para compatibilidad. */
+    /** Estado detallado de la orden (SOC, SOA, SOE, etc.). */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "estado", referencedColumnName = "id", nullable = false)
-    private CategoriaEvento estado; // SOC (Servicio en Curso), PENDIENTE, FINALIZADO, CANCELADO
+    private Evento estado;
     
     @Column(name = "fecha_ingreso", nullable = false, updatable = false)
     private LocalDateTime fechaIngreso;
@@ -114,6 +114,9 @@ public class OrdenDeServicio {
     private LocalDateTime fechaEntrega;
 
     @Column(nullable = false)
+    private boolean entregado = false;
+
+    @Column(nullable = false)
     private boolean activo = true;
 
     /**
@@ -128,7 +131,6 @@ public class OrdenDeServicio {
     // Constructores
     public OrdenDeServicio() {
         this.fechaIngreso = LocalDateTime.now();
-        this.estado = new CategoriaEvento("SOC"); //    SOC (Servicio en Curso), PENDIENTE, FINALIZADO, CANCELADO
         this.garantiaServicio = 30;
         this.costoServicio = BigDecimal.ZERO;
         this.costoRepuestos = BigDecimal.ZERO;
@@ -249,11 +251,11 @@ public class OrdenDeServicio {
                 .add(this.costoRepuestos != null ? this.costoRepuestos : BigDecimal.ZERO);
     }
     
-    public CategoriaEvento getEstado() {
+    public Evento getEstado() {
         return estado;
     }
     
-    public void setEstado(CategoriaEvento estado) {
+    public void setEstado(Evento estado) {
         this.estado = estado;
     }
     
@@ -332,6 +334,9 @@ public class OrdenDeServicio {
 
     public LocalDateTime getFechaEntrega() { return fechaEntrega; }
     public void setFechaEntrega(LocalDateTime fechaEntrega) { this.fechaEntrega = fechaEntrega; }
+
+    public boolean isEntregado() { return entregado; }
+    public void setEntregado(boolean entregado) { this.entregado = entregado; }
 
     public boolean isActivo() { return activo; }
     public void setActivo(boolean activo) { this.activo = activo; }

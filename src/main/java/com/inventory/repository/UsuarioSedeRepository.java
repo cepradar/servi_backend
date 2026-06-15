@@ -20,16 +20,20 @@ public interface UsuarioSedeRepository extends JpaRepository<UsuarioSede, Long> 
 
     Optional<UsuarioSede> findByUsuarioAndSede(User usuario, Sede sede);
 
-    @Query("SELECT us FROM UsuarioSede us WHERE us.usuario.username = :username")
+    @Query("SELECT us FROM UsuarioSede us WHERE UPPER(us.usuario.username) = UPPER(:username) AND us.activo = TRUE")
     List<UsuarioSede> findByUsuarioUsername(@Param("username") String username);
 
     @Query("SELECT CASE WHEN COUNT(us) > 0 THEN TRUE ELSE FALSE END " +
            "FROM UsuarioSede us " +
-           "WHERE us.usuario.username = :username AND us.sede.codigoSede = :codigoSede")
+           "WHERE UPPER(us.usuario.username) = UPPER(:username) " +
+           "AND UPPER(us.sede.codigoSede) = UPPER(:codigoSede) " +
+           "AND us.activo = TRUE AND us.sede.activo = TRUE")
     boolean existsByUsuarioUsernameAndCodigoSede(@Param("username") String username,
                                                   @Param("codigoSede") String codigoSede);
 
-    @Query("SELECT us.sede FROM UsuarioSede us WHERE us.usuario.username = :username AND us.sede.activo = TRUE")
+    @Query("SELECT us.sede FROM UsuarioSede us " +
+           "WHERE UPPER(us.usuario.username) = UPPER(:username) " +
+           "AND us.activo = TRUE AND us.sede.activo = TRUE")
     List<Sede> findSedesActivasByUsuarioUsername(@Param("username") String username);
 
     void deleteByUsuarioAndSede(User usuario, Sede sede);

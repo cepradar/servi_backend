@@ -74,8 +74,8 @@ public class UsuarioService implements UserDetailsService {
     }
 
     public Optional<UserDto> findByUsername(String username) {
-        // Buscamos el usuario por USERNAME
-        Optional<User> usuarios = userRepository.findByUsername(username);
+        String normalizedUsername = normalizeUsername(username);
+        Optional<User> usuarios = userRepository.findByUsernameIgnoreCase(normalizedUsername);
 
         // Si se encuentra, lo convertimos a UsuarioDto y lo devolvemos
         return usuarios.map(UserDto::new);
@@ -93,43 +93,51 @@ public class UsuarioService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        User user = userRepository.findByUsernameWithoutPicture(username)
+        String normalizedUsername = normalizeUsername(username);
+        User user = userRepository.findByUsernameWithoutPictureIgnoreCase(normalizedUsername)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado con el nombre: " + username));
         return user; // User implementa UserDetails
     }
 
     public Boolean updateProfilePicture(String username, MultipartFile file) throws IOException {
         // Verificar que el usuario existe
-        if (!userRepository.findByUsernameWithoutPicture(username).isPresent()) {
+        String normalizedUsername = normalizeUsername(username);
+        if (!userRepository.findByUsernameWithoutPictureIgnoreCase(normalizedUsername).isPresent()) {
             throw new IllegalArgumentException("Usuario no encontrado");
         }
         
         // Guardar la foto SOLO en la BD sin cargar el usuario completo
         byte[] fileBytes = compressProfileImage(file.getBytes(), 256, 0.8f);
-        userRepository.updateProfilePictureByUsername(fileBytes, username);
+        userRepository.updateProfilePictureByUsername(fileBytes, normalizedUsername);
         return true;
     }
 
     public Optional<byte[]> getProfilePicture(String username) {
-        return userRepository.findProfilePictureByUsername(username);
+        return userRepository.findProfilePictureByUsername(normalizeUsername(username));
     }
 
     public Boolean updatePassword(UpdatePswUserDto usuarioDto) {
-        // Buscar el usuario por username
-        Optional<User> userOptional = userRepository.findByUsername(usuarioDto.getUsername());
-        if (userOptional.isPresent()) {
-            User user = userOptional.get();
-            if (isValidPassword(usuarioDto.getNewPassword())) {
-                // Ciframos la nueva contraseña
-                user.setPassword(passwordEncoder.encode(usuarioDto.getNewPassword()));
-                // Guardamos el usuario con la nueva contraseña
-                userRepository.save(user);
-                new UserDto(user);
-                return true; // Devolvemos el DTO del usuario actualizado
-            }
+        return updatePassword(usuarioDto.getUsername(), null, usuarioDto.getNewPassword());
+    }
+
+    public Boolean updatePassword(String username, String currentPassword, String newPassword) {
+        Optional<User> userOptional = userRepository.findByUsernameIgnoreCase(normalizeUsername(username));
+        if (userOptional.isEmpty()) {
+            throw new IllegalArgumentException("Usuario no encontrado");
+        }
+
+        User user = userOptional.get();
+        if (currentPassword != null && !currentPassword.isBlank()
+                && !passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new IllegalArgumentException("La contraseña actual no es correcta");
+        }
+        if (!isValidPassword(newPassword)) {
             throw new IllegalArgumentException("La nueva contraseña no cumple con los requisitos de seguridad");
         }
-        throw new IllegalArgumentException("Usuario no encontrado");
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        return true;
     }
 
     private boolean isValidPassword(String password) {
@@ -155,11 +163,11 @@ public class UsuarioService implements UserDetailsService {
     }
 
     public Optional<User> getUserById(String username) {
-        return userRepository.findByUsername(username);
+        return userRepository.findByUsernameIgnoreCase(normalizeUsername(username));
     }
 
     public User updateUser(String username, UserDto userDto) {
-        Optional<User> userOptional = userRepository.findByUsername(username);
+        Optional<User> userOptional = userRepository.findByUsernameIgnoreCase(normalizeUsername(username));
         if (userOptional.isPresent()) {
             User user = userOptional.get();
             if (userDto.getRole() != null) {
@@ -187,7 +195,7 @@ public class UsuarioService implements UserDetailsService {
     }
 
     public Boolean deleteUser(String username) {
-        Optional<User> userOptional = userRepository.findByUsername(username);
+        Optional<User> userOptional = userRepository.findByUsernameIgnoreCase(normalizeUsername(username));
         if (userOptional.isPresent()) {
             userRepository.delete(userOptional.get());
             return true;
@@ -208,6 +216,13 @@ public class UsuarioService implements UserDetailsService {
 
     public User saveUser(User user) {
         return userRepository.save(user);
+    }
+
+    private String normalizeUsername(String username) {
+        if (username == null) {
+            return null;
+        }
+        return username.trim();
     }
 
     private byte[] compressProfileImage(byte[] originalBytes, int maxSize, float quality) throws IOException {

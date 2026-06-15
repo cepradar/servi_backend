@@ -17,6 +17,8 @@ public class UserDto {
     private String telefono;
     private String firstName;
     private String lastName;
+    private String fullName;
+    private String displayName;
     private String role;
     private String roleColor;
     private byte[] profilePicture;
@@ -35,6 +37,8 @@ public class UserDto {
         this.profilePicture = usuario.getProfilePicture();
         this.firstName = usuario.getFirstName();
         this.lastName = usuario.getLastName();
+        this.fullName = buildFullName(usuario.getFirstName(), usuario.getLastName());
+        this.displayName = !this.fullName.isBlank() ? this.fullName : usuario.getUsername();
         this.email = usuario.getEmail();
         this.telefono = usuario.getTelefono();
         this.cedula = usuario.getCedula();
@@ -59,5 +63,11 @@ public class UserDto {
         usuarios.setTelefono(usuariosDto.getTelefono());
         if (usuariosDto.getCedula() != null) usuarios.setCedula(usuariosDto.getCedula());
         return usuarios;
+    }
+
+    private static String buildFullName(String firstName, String lastName) {
+        String safeFirstName = firstName != null ? firstName.trim() : "";
+        String safeLastName = lastName != null ? lastName.trim() : "";
+        return (safeFirstName + " " + safeLastName).trim();
     }
 }

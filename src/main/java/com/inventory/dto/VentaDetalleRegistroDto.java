@@ -4,16 +4,12 @@ import java.math.BigDecimal;
 
 /**
  * DTO para registrar una línea de venta desde el cliente.
- * Compatible con productos físicos (productId) y servicios (servicioId).
- * El campo tipoItem discrimina: PRODUCTO | SERVICIO
+ * Cada línea corresponde a un producto físico.
  */
 public class VentaDetalleRegistroDto {
 
-    /** ID del producto físico. Requerido si tipoItem = PRODUCTO. */
+    /** ID del producto físico. */
     private String productId;
-
-    /** ID del servicio técnico. Requerido si tipoItem = SERVICIO. */
-    private Long servicioId;
 
     /** Discriminador: PRODUCTO (default) | SERVICIO */
     private String tipoItem = "PRODUCTO";
@@ -27,9 +23,6 @@ public class VentaDetalleRegistroDto {
 
     public String getProductId() { return productId; }
     public void setProductId(String productId) { this.productId = productId; }
-
-    public Long getServicioId() { return servicioId; }
-    public void setServicioId(Long servicioId) { this.servicioId = servicioId; }
 
     public String getTipoItem() { return tipoItem != null ? tipoItem : "PRODUCTO"; }
     public void setTipoItem(String tipoItem) { this.tipoItem = tipoItem; }

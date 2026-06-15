@@ -127,11 +127,11 @@ public class SedeService {
      * Asigna una sede a un usuario. Si ya está asignada, no hace nada (idempotente).
      */
     public UsuarioSedeDto asignarSedeAUsuario(String username, String codigoSede) {
-        Objects.requireNonNull(username, "username es obligatorio");
+        String normalizedUsername = normalizarUsername(username);
         Objects.requireNonNull(codigoSede, "codigoSede es obligatorio");
 
-        User usuario = userRepository.findById(username)
-            .orElseThrow(() -> new RuntimeException("Usuario no encontrado: " + username));
+        User usuario = userRepository.findByUsernameIgnoreCase(normalizedUsername)
+            .orElseThrow(() -> new RuntimeException("Usuario no encontrado: " + normalizedUsername));
 
         Sede sede = sedeRepository.findById(codigoSede.toUpperCase())
             .orElseThrow(() -> new RuntimeException("Sede no encontrada: " + codigoSede));
@@ -146,7 +146,7 @@ public class SedeService {
             .orElseGet(() -> {
                 UsuarioSede nueva = new UsuarioSede(usuario, sede);
                 UsuarioSede guardada = usuarioSedeRepository.save(nueva);
-                log.info("Sede {} asignada al usuario {}", codigoSede, username);
+                log.info("Sede {} asignada al usuario {}", codigoSede, normalizedUsername);
                 return convertirUsuarioSedeADto(guardada);
             });
     }
@@ -169,17 +169,17 @@ public class SedeService {
      * Remueve el acceso de un usuario a una sede específica.
      */
     public void removerSedeDeUsuario(String username, String codigoSede) {
-        Objects.requireNonNull(username, "username es obligatorio");
+        String normalizedUsername = normalizarUsername(username);
         Objects.requireNonNull(codigoSede, "codigoSede es obligatorio");
 
-        User usuario = userRepository.findById(username)
-            .orElseThrow(() -> new RuntimeException("Usuario no encontrado: " + username));
+        User usuario = userRepository.findByUsernameIgnoreCase(normalizedUsername)
+            .orElseThrow(() -> new RuntimeException("Usuario no encontrado: " + normalizedUsername));
 
         Sede sede = sedeRepository.findById(codigoSede.toUpperCase())
             .orElseThrow(() -> new RuntimeException("Sede no encontrada: " + codigoSede));
 
         usuarioSedeRepository.deleteByUsuarioAndSede(usuario, sede);
-        log.info("Sede {} removida del usuario {}", codigoSede, username);
+        log.info("Sede {} removida del usuario {}", codigoSede, normalizedUsername);
     }
 
     /**
@@ -187,8 +187,7 @@ public class SedeService {
      */
     @Transactional(readOnly = true)
     public List<UsuarioSedeDto> listarSedesDeUsuario(String username) {
-        Objects.requireNonNull(username, "username es obligatorio");
-        return usuarioSedeRepository.findByUsuarioUsername(username).stream()
+        return usuarioSedeRepository.findByUsuarioUsername(normalizarUsername(username)).stream()
             .map(this::convertirUsuarioSedeADto)
             .collect(Collectors.toList());
     }
@@ -211,7 +210,7 @@ public class SedeService {
      */
     @Transactional(readOnly = true)
     public List<SedeDto> obtenerSedesPermitidasParaUsuario(String username) {
-        return usuarioSedeRepository.findSedesActivasByUsuarioUsername(username).stream()
+        return usuarioSedeRepository.findSedesActivasByUsuarioUsername(normalizarUsername(username)).stream()
             .map(this::convertirADto)
             .collect(Collectors.toList());
     }
@@ -222,7 +221,7 @@ public class SedeService {
      */
     public void validarAccesoUsuarioASede(String username, String codigoSede) {
         boolean tieneAcceso = usuarioSedeRepository.existsByUsuarioUsernameAndCodigoSede(
-            username, codigoSede.toUpperCase());
+            normalizarUsername(username), codigoSede.toUpperCase());
         if (!tieneAcceso) {
             log.warn("Acceso denegado: usuario '{}' intentó acceder a sede '{}' sin autorización",
                 username, codigoSede);
@@ -237,7 +236,12 @@ public class SedeService {
      */
     @Transactional(readOnly = true)
     public boolean usuarioTieneAccesoASede(String username, String codigoSede) {
-        return usuarioSedeRepository.existsByUsuarioUsernameAndCodigoSede(username, codigoSede.toUpperCase());
+        return usuarioSedeRepository.existsByUsuarioUsernameAndCodigoSede(
+            normalizarUsername(username), codigoSede.toUpperCase());
+    }
+
+    private String normalizarUsername(String username) {
+        return Objects.requireNonNull(username, "username es obligatorio").trim();
     }
 
     // ── Conversores ─────────────────────────────────────────────────────────

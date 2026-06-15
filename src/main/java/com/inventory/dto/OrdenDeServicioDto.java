@@ -3,6 +3,8 @@ package com.inventory.dto;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 public class OrdenDeServicioDto {
     private String id;
@@ -43,6 +45,8 @@ public class OrdenDeServicioDto {
     private boolean activo;
     private LocalDateTime fechaReparado;
     private LocalDateTime fechaEntrega;
+    private boolean entregado;
+    private List<OrdenDeServicioDetalleDto> detalles = new ArrayList<>();
 
     // Getters y Setters
     public String getId() { return id; }
@@ -152,4 +156,12 @@ public class OrdenDeServicioDto {
 
     public LocalDateTime getFechaEntrega() { return fechaEntrega; }
     public void setFechaEntrega(LocalDateTime fechaEntrega) { this.fechaEntrega = fechaEntrega; }
+
+    public boolean isEntregado() { return entregado; }
+    public void setEntregado(boolean entregado) { this.entregado = entregado; }
+
+    public List<OrdenDeServicioDetalleDto> getDetalles() { return detalles; }
+    public void setDetalles(List<OrdenDeServicioDetalleDto> detalles) {
+        this.detalles = detalles != null ? detalles : new ArrayList<>();
+    }
 }

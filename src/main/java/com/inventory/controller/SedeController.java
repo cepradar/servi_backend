@@ -130,18 +130,12 @@ public class SedeController {
 
     /**
      * Devuelve las sedes a las que tiene acceso el usuario autenticado.
-     * - ADMIN: recibe TODAS las sedes activas (no necesita asignación en usuario_sede).
-     * - Otros roles: solo las sedes asignadas explícitamente en usuario_sede.
+     * Solo devuelve sedes activas asignadas explícitamente en usuario_sede.
      */
     @GetMapping("/mis-sedes")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<SedeDto>> misSedes(Authentication auth) {
-        boolean esAdmin = auth.getAuthorities().stream()
-            .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-        List<SedeDto> sedes = esAdmin
-            ? sedeService.listarSedesActivas()
-            : sedeService.obtenerSedesPermitidasParaUsuario(auth.getName());
-        return ResponseEntity.ok(sedes);
+        return ResponseEntity.ok(sedeService.obtenerSedesPermitidasParaUsuario(auth.getName()));
     }
 
     // ── Gestión de Usuarios por Sede ─────────────────────────────────────────

@@ -77,6 +77,9 @@ public class OrdenDeServicioDetalle {
     @Column(columnDefinition = "TEXT")
     private String observaciones;
 
+    @Column(name = "cierre_tecnico", columnDefinition = "TEXT")
+    private String cierreTecnico;
+
     // ── Flags operacionales ───────────────────────────────────────────────────
 
     @Column(nullable = false)
@@ -149,6 +152,9 @@ public class OrdenDeServicioDetalle {
 
     public String getObservaciones() { return observaciones; }
     public void setObservaciones(String observaciones) { this.observaciones = observaciones; }
+
+    public String getCierreTecnico() { return cierreTecnico; }
+    public void setCierreTecnico(String cierreTecnico) { this.cierreTecnico = cierreTecnico; }
 
     public boolean isActivo() { return activo; }
     public void setActivo(boolean activo) { this.activo = activo; }

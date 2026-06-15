@@ -10,7 +10,10 @@ spring-shell.log
 
 # ── Secrets / Variables de entorno ───────────────────────────
 .env
+.env.local
 !.env.example
+!.env.development
+!.env.production
 config/application.properties
 
 # ── IDE ──────────────────────────────────────────────────────

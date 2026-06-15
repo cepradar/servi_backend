@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 
 /**
  * DTO para representar una línea de detalle de venta en la respuesta API.
- * Compatible con productos físicos y servicios técnicos.
  */
 public class VentaDetalleDto {
 
@@ -12,11 +11,7 @@ public class VentaDetalleDto {
     private String productId;
     private String productNombre;
 
-    // ── Campos servicio ──────────────────────────────────────────────────────
-    private Long servicioId;
-    private String servicioNombre;
-
-    // ── Discriminador: PRODUCTO | SERVICIO ───────────────────────────────────
+    // ── Discriminador: PRODUCTO ──────────────────────────────────────────────
     private String tipoItem = "PRODUCTO";
 
     // ── Campos comunes ───────────────────────────────────────────────────────
@@ -43,13 +38,10 @@ public class VentaDetalleDto {
 
     /** Constructor completo con discriminador. */
     public VentaDetalleDto(String productId, String productNombre,
-                           Long servicioId, String servicioNombre,
                            String tipoItem,
                            Integer cantidad, BigDecimal precioUnitario, BigDecimal subtotal) {
         this.productId = productId;
         this.productNombre = productNombre;
-        this.servicioId = servicioId;
-        this.servicioNombre = servicioNombre;
         this.tipoItem = tipoItem != null ? tipoItem : "PRODUCTO";
         this.cantidad = cantidad;
         this.precioUnitario = precioUnitario;
@@ -63,12 +55,6 @@ public class VentaDetalleDto {
 
     public String getProductNombre() { return productNombre; }
     public void setProductNombre(String productNombre) { this.productNombre = productNombre; }
-
-    public Long getServicioId() { return servicioId; }
-    public void setServicioId(Long servicioId) { this.servicioId = servicioId; }
-
-    public String getServicioNombre() { return servicioNombre; }
-    public void setServicioNombre(String servicioNombre) { this.servicioNombre = servicioNombre; }
 
     public String getTipoItem() { return tipoItem; }
     public void setTipoItem(String tipoItem) { this.tipoItem = tipoItem; }

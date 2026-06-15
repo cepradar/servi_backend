@@ -1,17 +1,21 @@
 package com.inventory.service;
 
 import com.inventory.dto.OrdenDeServicioDto;
-import com.inventory.model.CategoriaEvento;
+import com.inventory.dto.OrdenDeServicioDetalleDto;
 import com.inventory.model.Cliente;
 import com.inventory.model.ClienteElectrodomestico;
 import com.inventory.model.OrdenDeServicio;
+import com.inventory.model.OrdenDeServicioDetalle;
 import com.inventory.model.Sede;
 import com.inventory.model.Evento;
+import com.inventory.model.Servicio;
 import com.inventory.model.User;
 import com.inventory.repository.ClienteElectrodomesticoRepository;
 import com.inventory.repository.ClienteRepository;
 import com.inventory.repository.ProductRepository;
 import com.inventory.repository.OrdenDeServicioRepository;
+import com.inventory.repository.OrdenDeServicioDetalleRepository;
+import com.inventory.repository.ServicioRepository;
 import com.inventory.repository.SedeRepository;
 import com.inventory.repository.EventoRepository;
 import com.inventory.repository.UsuarioSedeRepository;
@@ -26,10 +30,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -44,6 +50,9 @@ public class OrdenDeServicioService {
     private OrdenDeServicioRepository servicioRepository;
 
     @Autowired
+    private OrdenDeServicioDetalleRepository detalleRepository;
+
+    @Autowired
     private ClienteRepository clienteRepository;
 
     @Autowired
@@ -54,6 +63,9 @@ public class OrdenDeServicioService {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private ServicioRepository catalogoServicioRepository;
 
     @Autowired
     private EventoRepository tipoEventoRepository;
@@ -127,7 +139,10 @@ public class OrdenDeServicioService {
         }
 
         int consecutivo = sede.getConsecutivoOrdenes();
-        String idOrden = String.format("O-%s-%06d", codigoSede, consecutivo);
+        String prefijoOrden = sede.getPrefijoCodigoOrden() != null && !sede.getPrefijoCodigoOrden().isBlank()
+            ? sede.getPrefijoCodigoOrden().trim().toUpperCase()
+            : "O";
+        String idOrden = String.format("%s-%s-%06d", codigoSede, prefijoOrden, consecutivo);
         sede.setConsecutivoOrdenes(consecutivo + 1);
         sedeRepository.save(sede);
 
@@ -139,20 +154,23 @@ public class OrdenDeServicioService {
         servicio.setSede(sede);
         servicio.setCliente(cliente);
         servicio.setClienteElectrodomestico(ce);
-        servicio.setTipoServicio(dto.getTipoServicio());
+        List<OrdenDeServicioDetalle> detalles = construirDetallesServicio(servicio, dto, usernameLogeado);
+        servicio.setTipoServicio(resumirServicios(detalles));
         servicio.setDescripcionProblema(dto.getDescripcionProblema());
         servicio.setDiagnostico(dto.getDiagnostico());
         servicio.setSolucion(dto.getSolucion());
         servicio.setPartesCambiadas(dto.getPartesCambiadas());
-        servicio.setCostoServicio(dto.getCostoServicio() != null ? dto.getCostoServicio() : BigDecimal.ZERO);
+        BigDecimal costoServicios = calcularCostoServicios(detalles);
+        servicio.setCostoServicio(dto.getCostoServicio() != null ? dto.getCostoServicio() : costoServicios);
         servicio.setCostoRepuestos(dto.getCostoRepuestos() != null ? dto.getCostoRepuestos() : BigDecimal.ZERO);
         servicio.setTotalCosto(servicio.getCostoServicio().add(servicio.getCostoRepuestos()));
-        servicio.setGarantiaServicio(dto.getGarantiaServicio() != null ? dto.getGarantiaServicio() : 30);
+        servicio.setGarantiaServicio(dto.getGarantiaServicio() != null ? dto.getGarantiaServicio() : calcularGarantiaServicios(detalles));
         // Regla 1: toda orden nueva se crea con estado ORDEN_SERVICIO_CREADA / SOC
         Evento eventoCreacion = resolverTipoEventoEstado("RECIBIDO");
-        servicio.setEstado(eventoCreacion.getCategoria()); // asigna la CategoriaEvento del evento
+        servicio.setEstado(eventoCreacion);
         servicio.setUsuario(usuario);
         servicio.setObservaciones(dto.getObservaciones());
+        servicio.setDetalle(detalles);
 
         // Asignar técnico si se proporciona
         if (dto.getTecnicoAsignadoUsername() != null && !dto.getTecnicoAsignadoUsername().isEmpty()) {
@@ -219,7 +237,9 @@ public class OrdenDeServicioService {
             servicio.setObservaciones(dto.getObservaciones());
         }
         if (dto.getEstado() != null) {
-            servicio.setEstado(resolverTipoEventoEstado(dto.getEstado()).getCategoria());
+            String estadoNormalizado = normalizarEstado(dto.getEstado());
+            servicio.setEstado(resolverTipoEventoEstado(estadoNormalizado));
+            aplicarFechasPorEstado(servicio, estadoNormalizado);
         }
         if (dto.getTecnicoAsignadoUsername() != null) {
             String tecnicoUsername = dto.getTecnicoAsignadoUsername().trim();
@@ -278,16 +298,8 @@ public class OrdenDeServicioService {
         String estadoNormalizado = normalizarEstado(nuevoEstado);
         Evento tipoEvento = resolverTipoEventoEstado(estadoNormalizado);
 
-        servicio.setEstado(tipoEvento.getCategoria());
-
-        if (("LISTO".equalsIgnoreCase(estadoNormalizado) || "REPARADO".equalsIgnoreCase(estadoNormalizado))
-                && servicio.getGarantiaServicio() != null) {
-            servicio.setVencimientoGarantia(LocalDate.now().plusDays(servicio.getGarantiaServicio()));
-        }
-
-        if ("ENTREGADO".equalsIgnoreCase(estadoNormalizado)) {
-            servicio.setFechaSalida(LocalDateTime.now());
-        }
+        servicio.setEstado(tipoEvento);
+        aplicarFechasPorEstado(servicio, estadoNormalizado);
 
         OrdenDeServicio actualizado = servicioRepository.save(servicio);
 
@@ -346,8 +358,8 @@ public class OrdenDeServicioService {
                 .orElseThrow(() -> new RuntimeException("Orden no encontrada: " + id));
 
         // Resolver dinámicamente el estado inicial (RECIBIDO) en la BD
-        CategoriaEvento categoriaEsperada = resolverTipoEventoEstado("RECIBIDO").getCategoria();
-        if (servicio.getEstado() == null || !categoriaEsperada.getId().equals(servicio.getEstado().getId())) {
+        Evento estadoEsperado = resolverTipoEventoEstado("RECIBIDO");
+        if (servicio.getEstado() == null || !estadoEsperado.getId().equals(servicio.getEstado().getId())) {
             throw new RuntimeException(
                     "Solo se pueden asignar órdenes en estado ORDEN_SERVICIO_CREADA. " +
                     "Estado actual de la orden " + id + ": " + (servicio.getEstado() != null ? servicio.getEstado().getNombre() : "-"));
@@ -366,7 +378,7 @@ public class OrdenDeServicioService {
         Evento eventoAsignada = resolverTipoEventoEstado("ASIGNADO");
 
         servicio.setTecnicoAsignado(tecnico);
-        servicio.setEstado(eventoAsignada.getCategoria());
+        servicio.setEstado(eventoAsignada);
         servicio.setFechaAsignacion(LocalDateTime.now());
 
         OrdenDeServicio actualizado = servicioRepository.save(servicio);
@@ -415,17 +427,19 @@ public class OrdenDeServicioService {
             servicio.setCostoRepuestos(cierreDto.getCostoRepuestos());
         }
         if (cierreDto.getObservaciones() != null) servicio.setObservaciones(cierreDto.getObservaciones());
+        actualizarDetallesCierre(servicio, cierreDto.getDetalles());
 
         String estadoAnterior = servicio.getEstado() != null ? servicio.getEstado().getNombre() : "-";
         String estadoNormalizado = normalizarEstado(nuevoEstado);
+        if ("REPARADO".equalsIgnoreCase(estadoNormalizado)
+                || "LISTO".equalsIgnoreCase(estadoNormalizado)
+                || "ENTREGADO".equalsIgnoreCase(estadoNormalizado)) {
+            validarTodosLosServiciosReparados(servicio);
+        }
         Evento tipoEvento = resolverTipoEventoEstado(estadoNormalizado);
 
-        servicio.setEstado(tipoEvento.getCategoria());
-
-        if (("LISTO".equalsIgnoreCase(estadoNormalizado) || "REPARADO".equalsIgnoreCase(estadoNormalizado))
-                && servicio.getGarantiaServicio() != null) {
-            servicio.setVencimientoGarantia(LocalDate.now().plusDays(servicio.getGarantiaServicio()));
-        }
+        servicio.setEstado(tipoEvento);
+        aplicarFechasPorEstado(servicio, estadoNormalizado);
 
         OrdenDeServicio actualizado = servicioRepository.save(servicio);
 
@@ -438,6 +452,9 @@ public class OrdenDeServicioService {
      * Marca una orden como ENTREGADA. Accesible para ADMIN y TECNICO.
      */
     public OrdenDeServicioDto entregarOrden(String id, String usernameLogeado) {
+        OrdenDeServicio servicio = servicioRepository.findById(Objects.requireNonNull(id, "id"))
+                .orElseThrow(() -> new RuntimeException("Orden no encontrada: " + id));
+        validarTodosLosServiciosReparados(servicio);
         return cambiarEstado(id, "ENTREGADO", usernameLogeado);
     }
 
@@ -459,7 +476,7 @@ public class OrdenDeServicioService {
             dto.setCodigoSede(servicio.getSede().getCodigoSede());
             dto.setNombreSede(servicio.getSede().getNombre());
         }
-        dto.setClienteId(servicio.getCliente() != null ? String.valueOf(servicio.getCliente().getId()) : null);
+        dto.setClienteId(servicio.getCliente() != null ? servicio.getCliente().getNit() : null);
         dto.setClienteTipoDocumentoId(servicio.getCliente() != null ? servicio.getCliente().getTipoDocumentoId() : null);
         dto.setClienteNombre(servicio.getCliente() != null ? servicio.getCliente().getNombre() : null);
         dto.setClienteApellido(servicio.getCliente() != null ? servicio.getCliente().getApellido() : null);
@@ -478,7 +495,7 @@ public class OrdenDeServicioService {
         dto.setCostoRepuestos(servicio.getCostoRepuestos());
         dto.setTotalCosto(servicio.getTotalCosto());
         // Resolver tipo_evento.nombre: usar mapa precargado si está disponible
-        String codigoEstado = servicio.getEstado() != null ? servicio.getEstado().getNombre() : null;
+        String codigoEstado = servicio.getEstado() != null ? servicio.getEstado().getId() : null;
         String nombreEstado = (mapaEstados != null && codigoEstado != null && mapaEstados.containsKey(codigoEstado))
                 ? mapaEstados.get(codigoEstado)
                 : estadoVisualDesdeCodigo(codigoEstado);
@@ -492,11 +509,20 @@ public class OrdenDeServicioService {
         dto.setTecnicoAsignadoUsername(servicio.getTecnicoAsignado() != null ? servicio.getTecnicoAsignado().getUsername() : null);
         dto.setTecnicoAsignadoNombre(servicio.getTecnicoAsignado() != null ? servicio.getTecnicoAsignado().getFirstName() + " " + servicio.getTecnicoAsignado().getLastName() : null);
         dto.setFechaAsignacion(servicio.getFechaAsignacion());
-        dto.setCodigoEstado(codigoEstado); // código interno: SOC, SOA, etc.
+        dto.setCodigoEstado(codigoEstado);
         dto.setObservaciones(servicio.getObservaciones());
         dto.setActivo(servicio.isActivo());
         dto.setFechaReparado(servicio.getFechaReparado());
         dto.setFechaEntrega(servicio.getFechaEntrega());
+        dto.setEntregado(servicio.isEntregado());
+        dto.setDetalles(servicio.getDetalle() != null
+                ? servicio.getDetalle().stream()
+                    .sorted((a, b) -> Integer.compare(
+                            a.getRegServicio() != null ? a.getRegServicio() : 0,
+                            b.getRegServicio() != null ? b.getRegServicio() : 0))
+                    .map(this::convertirDetalleADto)
+                    .collect(Collectors.toList())
+                : List.of());
         return dto;
     }
 
@@ -544,6 +570,158 @@ public class OrdenDeServicioService {
         return String.format("%s-%s-%s-%s-%s-%03d", ordenId, fecha, hora, clienteId, clienteTipoDocumentoId, regProd);
     }
 
+    private List<OrdenDeServicioDetalle> construirDetallesServicio(OrdenDeServicio orden, OrdenDeServicioDto dto, String usernameLogeado) {
+        List<OrdenDeServicioDetalleDto> detallesEntrada = dto.getDetalles() != null ? dto.getDetalles() : List.of();
+        List<OrdenDeServicioDetalle> detalles = new ArrayList<>();
+
+        if (!detallesEntrada.isEmpty()) {
+            int regServicio = 1;
+            for (OrdenDeServicioDetalleDto detalleDto : detallesEntrada) {
+                Servicio servicio = resolverServicioDetalle(detalleDto);
+                detalles.add(crearDetalleServicio(orden, servicio, regServicio++, detalleDto, usernameLogeado));
+            }
+            return detalles;
+        }
+
+        if (dto.getTipoServicio() == null || dto.getTipoServicio().isBlank()) {
+            throw new RuntimeException("Debe seleccionar al menos un servicio para la orden");
+        }
+
+        Servicio servicio = catalogoServicioRepository.findByNombreIgnoreCaseAndActivoTrue(dto.getTipoServicio().trim())
+                .orElseThrow(() -> new RuntimeException("Servicio no encontrado o inactivo: " + dto.getTipoServicio()));
+        OrdenDeServicioDetalleDto detalleLegado = new OrdenDeServicioDetalleDto();
+        detalleLegado.setCantidad(1);
+        detalleLegado.setPrecioUnitario(servicio.getPrecioBase());
+        detalles.add(crearDetalleServicio(orden, servicio, 1, detalleLegado, usernameLogeado));
+        return detalles;
+    }
+
+    private Servicio resolverServicioDetalle(OrdenDeServicioDetalleDto detalleDto) {
+        if (detalleDto == null) {
+            throw new RuntimeException("El detalle del servicio no puede ser nulo");
+        }
+        if (detalleDto.getServicioId() != null) {
+            return catalogoServicioRepository.findById(detalleDto.getServicioId())
+                    .filter(Servicio::isActivo)
+                    .orElseThrow(() -> new RuntimeException("Servicio no encontrado o inactivo: " + detalleDto.getServicioId()));
+        }
+        if (detalleDto.getServicioNombre() != null && !detalleDto.getServicioNombre().isBlank()) {
+            return catalogoServicioRepository.findByNombreIgnoreCaseAndActivoTrue(detalleDto.getServicioNombre().trim())
+                    .orElseThrow(() -> new RuntimeException("Servicio no encontrado o inactivo: " + detalleDto.getServicioNombre()));
+        }
+        throw new RuntimeException("Cada detalle debe incluir un servicio válido");
+    }
+
+    private OrdenDeServicioDetalle crearDetalleServicio(OrdenDeServicio orden, Servicio servicio, int regServicio,
+                                                        OrdenDeServicioDetalleDto detalleDto, String usernameLogeado) {
+        OrdenDeServicioDetalle detalle = new OrdenDeServicioDetalle();
+        detalle.setId(generarDetalleServicioId());
+        detalle.setOrdenDeServicio(orden);
+        detalle.setServicio(servicio);
+        detalle.setRegServicio(regServicio);
+        detalle.setCantidad(detalleDto.getCantidad() != null && detalleDto.getCantidad() > 0 ? detalleDto.getCantidad() : 1);
+        detalle.setPrecioUnitario(detalleDto.getPrecioUnitario() != null ? detalleDto.getPrecioUnitario() : servicio.getPrecioBase());
+        detalle.setObservaciones(detalleDto.getObservaciones());
+        detalle.setCierreTecnico(detalleDto.getCierreTecnico());
+        detalle.setUsuarioRegistro(usernameLogeado);
+        return detalle;
+    }
+
+    private OrdenDeServicioDetalleDto convertirDetalleADto(OrdenDeServicioDetalle detalle) {
+        OrdenDeServicioDetalleDto dto = new OrdenDeServicioDetalleDto();
+        dto.setId(detalle.getId());
+        dto.setOrdenDeServicioId(detalle.getOrdenDeServicio() != null ? detalle.getOrdenDeServicio().getId() : null);
+        dto.setRegServicio(detalle.getRegServicio());
+        dto.setServicioId(detalle.getServicio() != null ? detalle.getServicio().getId() : null);
+        dto.setServicioCodigo(detalle.getServicio() != null ? detalle.getServicio().getCodigo() : null);
+        dto.setServicioNombre(detalle.getServicio() != null ? detalle.getServicio().getNombre() : null);
+        dto.setCantidad(detalle.getCantidad());
+        dto.setPrecioUnitario(detalle.getPrecioUnitario());
+        dto.setSubtotal((detalle.getPrecioUnitario() != null ? detalle.getPrecioUnitario() : BigDecimal.ZERO)
+                .multiply(BigDecimal.valueOf(detalle.getCantidad() != null ? detalle.getCantidad() : 0)));
+        dto.setObservaciones(detalle.getObservaciones());
+        dto.setCierreTecnico(detalle.getCierreTecnico());
+        dto.setActivo(detalle.isActivo());
+        dto.setEntregado(detalle.isEntregado());
+        dto.setReparado(detalle.isReparado());
+        dto.setDiagnosticado(detalle.isDiagnosticado());
+        dto.setFechaEntregado(detalle.getFechaEntregado());
+        dto.setFechaReparado(detalle.getFechaReparado());
+        dto.setFechaDiagnosticado(detalle.getFechaDiagnosticado());
+        dto.setFechaModificacion(detalle.getFechaModificacion());
+        dto.setUsuarioRegistro(detalle.getUsuarioRegistro());
+        return dto;
+    }
+
+    private void actualizarDetallesCierre(OrdenDeServicio servicio, List<OrdenDeServicioDetalleDto> detallesActualizados) {
+        if (detallesActualizados == null || detallesActualizados.isEmpty()) {
+            return;
+        }
+
+        Map<String, OrdenDeServicioDetalle> detallesPorId = servicio.getDetalle().stream()
+                .collect(Collectors.toMap(OrdenDeServicioDetalle::getId, detalle -> detalle, (a, b) -> a));
+        Map<Integer, OrdenDeServicioDetalle> detallesPorReg = servicio.getDetalle().stream()
+                .collect(Collectors.toMap(OrdenDeServicioDetalle::getRegServicio, detalle -> detalle, (a, b) -> a));
+        LocalDateTime ahora = LocalDateTime.now();
+
+        for (OrdenDeServicioDetalleDto detalleDto : detallesActualizados) {
+            OrdenDeServicioDetalle detalle = null;
+            if (detalleDto.getId() != null && !detalleDto.getId().isBlank()) {
+                detalle = detallesPorId.get(detalleDto.getId());
+            }
+            if (detalle == null && detalleDto.getRegServicio() != null) {
+                detalle = detallesPorReg.get(detalleDto.getRegServicio());
+            }
+            if (detalle == null) {
+                throw new RuntimeException("No se encontró el detalle de servicio a actualizar");
+            }
+
+            detalle.setObservaciones(detalleDto.getObservaciones());
+            detalle.setCierreTecnico(detalleDto.getCierreTecnico());
+            detalle.setFechaModificacion(ahora);
+
+            if (detalleDto.isDiagnosticado() && !detalle.isDiagnosticado()) {
+                detalle.setDiagnosticado(true);
+                detalle.setFechaDiagnosticado(ahora);
+            }
+
+            detalle.setReparado(detalleDto.isReparado());
+            if (detalleDto.isReparado()) {
+                if (detalle.getFechaReparado() == null) {
+                    detalle.setFechaReparado(ahora);
+                }
+            } else {
+                detalle.setFechaReparado(null);
+            }
+        }
+    }
+
+    private String resumirServicios(List<OrdenDeServicioDetalle> detalles) {
+        return detalles.stream()
+                .map(detalle -> detalle.getServicio().getNombre())
+                .distinct()
+                .collect(Collectors.joining(", "));
+    }
+
+    private BigDecimal calcularCostoServicios(List<OrdenDeServicioDetalle> detalles) {
+        return detalles.stream()
+                .map(detalle -> detalle.getPrecioUnitario().multiply(BigDecimal.valueOf(detalle.getCantidad())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private Integer calcularGarantiaServicios(List<OrdenDeServicioDetalle> detalles) {
+        return detalles.stream()
+                .map(OrdenDeServicioDetalle::getServicio)
+                .map(Servicio::getGarantiaDias)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(30);
+    }
+
+    private String generarDetalleServicioId() {
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 25);
+    }
+
     private String normalizarEstado(String estado) {
         String estadoNormalizado = Objects.requireNonNull(estado, "estado").trim().toUpperCase();
         if ("REPARADD".equals(estadoNormalizado)) {
@@ -581,6 +759,64 @@ public class OrdenDeServicioService {
                 return "ORDEN_SERVICIO_CANCELADA";
             default:
                 throw new RuntimeException("Estado de orden no soportado para auditoria: " + estado);
+        }
+    }
+
+    private void aplicarFechasPorEstado(OrdenDeServicio servicio, String estadoNormalizado) {
+        LocalDateTime ahora = LocalDateTime.now();
+        boolean marcarEntregado = "ENTREGADO".equalsIgnoreCase(estadoNormalizado);
+
+        servicio.setEntregado(marcarEntregado);
+
+        if (("LISTO".equalsIgnoreCase(estadoNormalizado) || "REPARADO".equalsIgnoreCase(estadoNormalizado))
+                && servicio.getGarantiaServicio() != null) {
+            servicio.setVencimientoGarantia(LocalDate.now().plusDays(servicio.getGarantiaServicio()));
+        }
+
+        if ("REPARADO".equalsIgnoreCase(estadoNormalizado) && servicio.getFechaReparado() == null) {
+            servicio.setFechaReparado(ahora);
+        }
+
+        if (marcarEntregado) {
+            marcarDetallesEntregados(servicio, ahora);
+            if (servicio.getFechaEntrega() == null) {
+                servicio.setFechaEntrega(ahora);
+            }
+            if (servicio.getFechaSalida() == null) {
+                servicio.setFechaSalida(ahora);
+            }
+        }
+    }
+
+    private void marcarDetallesEntregados(OrdenDeServicio servicio, LocalDateTime fechaEntrega) {
+        if (servicio.getDetalle() == null) {
+            return;
+        }
+        for (OrdenDeServicioDetalle detalle : servicio.getDetalle()) {
+            if (!detalle.isActivo()) {
+                continue;
+            }
+            detalle.setEntregado(true);
+            if (detalle.getFechaEntregado() == null) {
+                detalle.setFechaEntregado(fechaEntrega);
+            }
+            detalle.setFechaModificacion(fechaEntrega);
+        }
+    }
+
+    private void validarTodosLosServiciosReparados(OrdenDeServicio servicio) {
+        List<OrdenDeServicioDetalle> detallesActivos = servicio.getDetalle() != null
+                ? servicio.getDetalle().stream().filter(OrdenDeServicioDetalle::isActivo).collect(Collectors.toList())
+                : List.of();
+        if (detallesActivos.isEmpty()) {
+            detallesActivos = detalleRepository.findByOrdenDeServicioIdAndActivoTrue(servicio.getId());
+        }
+        if (detallesActivos.isEmpty()) {
+            throw new RuntimeException("La orden no tiene servicios activos para cerrar o entregar");
+        }
+        boolean hayPendientes = detallesActivos.stream().anyMatch(detalle -> !detalle.isReparado());
+        if (hayPendientes) {
+            throw new RuntimeException("Todos los servicios de la orden deben estar marcados como REPARADO");
         }
     }
 

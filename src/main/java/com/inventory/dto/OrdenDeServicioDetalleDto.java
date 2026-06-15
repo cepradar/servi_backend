@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 
 public class OrdenDeServicioDetalleDto {
 
-    private Long id;
+    private String id;
     private String ordenDeServicioId;
     private Integer regServicio;
 
@@ -19,6 +19,7 @@ public class OrdenDeServicioDetalleDto {
     private BigDecimal precioUnitario;
     private BigDecimal subtotal;
     private String observaciones;
+    private String cierreTecnico;
 
     // Flags operacionales
     private boolean activo;
@@ -37,8 +38,8 @@ public class OrdenDeServicioDetalleDto {
 
     // ── Getters y Setters ─────────────────────────────────────────────────────
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
 
     public String getOrdenDeServicioId() { return ordenDeServicioId; }
     public void setOrdenDeServicioId(String ordenDeServicioId) { this.ordenDeServicioId = ordenDeServicioId; }
@@ -66,6 +67,9 @@ public class OrdenDeServicioDetalleDto {
 
     public String getObservaciones() { return observaciones; }
     public void setObservaciones(String observaciones) { this.observaciones = observaciones; }
+
+    public String getCierreTecnico() { return cierreTecnico; }
+    public void setCierreTecnico(String cierreTecnico) { this.cierreTecnico = cierreTecnico; }
 
     public boolean isActivo() { return activo; }
     public void setActivo(boolean activo) { this.activo = activo; }

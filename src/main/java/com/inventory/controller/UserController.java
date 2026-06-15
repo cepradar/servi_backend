@@ -10,9 +10,11 @@ import com.inventory.model.User;
 import com.inventory.service.UsuarioService;
 import com.inventory.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.Authentication;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -108,19 +110,21 @@ public class UserController {
 
     @PostMapping("/login")
     public Map<String, String> login(@RequestBody LoginRequest loginRequest) throws Exception {
+        String normalizedUsername = loginRequest.getUsername() != null ? loginRequest.getUsername().trim() : null;
+
         // Log para imprimir el cuerpo de la solicitud de login
         logger.info("Cuerpo de la solicitud de login: username={}, password={}",
-                loginRequest.getUsername(), loginRequest.getPassword());
+                normalizedUsername, loginRequest.getPassword());
 
-        Optional<UserDto> user = null;
+        Optional<UserDto> user;
         try {
             // Autenticación del usuario
             authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
+                    new UsernamePasswordAuthenticationToken(normalizedUsername, loginRequest.getPassword()));
 
             // Recuperar el usuario autenticado de la base de datos
-            user = userService.findByUsername(loginRequest.getUsername());
-            if (user == null) {
+            user = userService.findByUsername(normalizedUsername);
+            if (user.isEmpty()) {
                 throw new Exception("Usuario no encontrado");
             }
 
@@ -132,19 +136,12 @@ public class UserController {
         String role = user.get().getRole(); // UserDto.getRole() ya devuelve un String
 
         // Generar token JWT para el usuario autenticado
-        String token = jwtUtil.generateToken(loginRequest.getUsername(), role);
+        String token = jwtUtil.generateToken(user.get().getUsername(), role);
 
         // Log del token generado
-        logger.info("Token generado para el usuario {}: {}", loginRequest.getUsername(), token);
+        logger.info("Token generado para el usuario {}: {}", user.get().getUsername(), token);
 
-        // Devolver el token y la información del usuario en un objeto JSON
-        Map<String, String> response = new HashMap<>();
-        response.put("token", token);
-        response.put("username", loginRequest.getUsername());
-        response.put("role", role); // Aquí devolvemos solo el nombre del rol, no el objeto Role
-        response.put("message", "Inicio de sesión exitoso");
-
-        return response;
+        return buildAuthResponse(user.get(), token, "Inicio de sesión exitoso");
     }
 
     @PostMapping("/validate")
@@ -163,20 +160,32 @@ public class UserController {
         return "Token válido";
     }
 
-    @PostMapping("/change-password")
-    public Map<String, String> changePassword(@RequestBody Map<String, String> request) {
-        String username = jwtUtil.extractUsername(request.get("token"));
-        String newPassword = request.get("newPassword");
-        Rol rol = new Rol(jwtUtil.extractRoles(request.get("token")));
+    @RequestMapping(value = {"/change-password", "/update-password"}, method = {RequestMethod.POST, RequestMethod.PUT})
+    public ResponseEntity<Map<String, String>> changePassword(@RequestBody Map<String, String> request,
+                                                              Authentication authentication,
+                                                              HttpServletRequest httpRequest) {
+        String username = resolveUsername(authentication, request.get("token"), httpRequest);
+        String currentPassword = firstNonBlank(request.get("currentPassword"), request.get("oldPassword"));
+        String newPassword = firstNonBlank(request.get("newPassword"), request.get("password"));
 
-        UpdatePswUserDto actualizarPSWUsuarioDto = new UpdatePswUserDto(username, newPassword, rol);
-
-        boolean isUpdated = userService.updatePassword(actualizarPSWUsuarioDto);
-
+        boolean isUpdated = userService.updatePassword(username, currentPassword, newPassword);
         Map<String, String> response = new HashMap<>();
         response.put("message",
                 isUpdated ? "Contraseña actualizada correctamente" : "Error al actualizar la contraseña");
-        return response;
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUserProfile(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "No hay un usuario autenticado"));
+        }
+
+        return userService.findByUsername(authentication.getName())
+                .<ResponseEntity<?>>map(userDto -> ResponseEntity.ok(buildAuthResponse(userDto, null, "Perfil obtenido correctamente")))
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Usuario no encontrado")));
     }
 
     @PostMapping("/update-profile-picture")
@@ -217,6 +226,63 @@ public class UserController {
         Map<String, String> response = new HashMap<>();
         response.put("message", "Sesión cerrada correctamente");
         return response;
+    }
+
+    private Map<String, String> buildAuthResponse(UserDto user, String token, String message) {
+        Map<String, String> response = new HashMap<>();
+        String firstName = user.getFirstName() != null ? user.getFirstName() : "";
+        String lastName = user.getLastName() != null ? user.getLastName() : "";
+        String fullName = user.getFullName() != null ? user.getFullName() : (firstName + " " + lastName).trim();
+        String displayName = user.getDisplayName() != null && !user.getDisplayName().isBlank()
+                ? user.getDisplayName()
+                : (!fullName.isBlank() ? fullName : user.getUsername());
+
+        if (token != null) {
+            response.put("token", token);
+        }
+        response.put("username", user.getUsername());
+        response.put("role", user.getRole());
+        response.put("firstName", firstName);
+        response.put("lastName", lastName);
+        response.put("fullName", fullName);
+        response.put("displayName", displayName);
+        response.put("name", displayName);
+        response.put("email", user.getEmail() != null ? user.getEmail() : "");
+        response.put("message", message);
+        return response;
+    }
+
+    private String resolveUsername(Authentication authentication, String tokenFromBody, HttpServletRequest request) {
+        if (authentication != null && authentication.getName() != null && !authentication.getName().isBlank()) {
+            return authentication.getName();
+        }
+
+        String token = firstNonBlank(tokenFromBody, extractBearerToken(request));
+        if (token == null) {
+            throw new IllegalArgumentException("No fue posible identificar al usuario autenticado");
+        }
+        return jwtUtil.extractUsername(token);
+    }
+
+    private String extractBearerToken(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7);
+        }
+        return null;
+    }
+
+    private String firstNonBlank(String primary, String secondary) {
+        if (primary != null && !primary.isBlank()) {
+            return primary;
+        }
+        if (secondary != null && !secondary.isBlank()) {
+            return secondary;
+        }
+        return null;
     }
 
 }

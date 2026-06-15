@@ -4,6 +4,7 @@ import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 
 import java.security.Key;
+import java.nio.charset.StandardCharsets;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -32,8 +33,7 @@ public class JwtUtil {
         if (username == null || role == null) {
             throw new IllegalArgumentException("El nombre de usuario y el rol no pueden ser nulos");
         }
-        // Usar una clave generada desde secretKey
-        Key key = Keys.hmacShaKeyFor(secretKey.getBytes());
+        Key key = getSigningKey();
 
         String token = Jwts.builder()
         .setSubject(username)
@@ -42,16 +42,15 @@ public class JwtUtil {
         .setExpiration(new Date(System.currentTimeMillis() + expirationTime))
         .signWith(key, SignatureAlgorithm.HS512)
         .compact();
-        System.out.println("Token generado: " + token);
         // Generar el token con username y role
         return token;
-            
+             
         }
 
     private Claims extractClaims(String token) {
         try {
             return Jwts.parserBuilder()
-                    .setSigningKey(secretKey.getBytes())
+                    .setSigningKey(getSigningKey())
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
@@ -89,7 +88,7 @@ public class JwtUtil {
     public boolean isTokenExpired(String token) {
         try {
             Claims claims = Jwts.parserBuilder()
-                    .setSigningKey(secretKey.getBytes()) // Asegúrate de que la clave aquí es la correcta
+                    .setSigningKey(getSigningKey())
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
@@ -127,5 +126,20 @@ public class JwtUtil {
         String tokenRole = extractRoles(token);
         return tokenRole != null && tokenRole.equalsIgnoreCase(role);
     }
-    
+
+    private Key getSigningKey() {
+        if (secretKey == null || secretKey.trim().isEmpty()) {
+            throw new IllegalStateException("JWT_SECRET no está configurado");
+        }
+
+        byte[] keyBytes = secretKey.trim().getBytes(StandardCharsets.UTF_8);
+        if (keyBytes.length < 64) {
+            throw new IllegalStateException(
+                    "JWT_SECRET debe tener al menos 64 caracteres ASCII para usar HS512. Longitud actual: "
+                            + keyBytes.length);
+        }
+
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+     
 }

@@ -36,7 +36,7 @@ public interface OrdenDeServicioRepository extends JpaRepository<OrdenDeServicio
     @Query("SELECT s FROM OrdenDeServicio s WHERE s.fechaIngreso >= :fechaInicio AND s.fechaIngreso <= :fechaFin ORDER BY s.fechaIngreso DESC")
     List<OrdenDeServicio> findByFechaIngresoRango(java.time.LocalDateTime fechaInicio, java.time.LocalDateTime fechaFin);
     
-    @Query("SELECT s FROM OrdenDeServicio s WHERE s.estado.nombre != 'SOENT' AND s.estado.nombre != 'SOCAN' ORDER BY s.fechaIngreso ASC")
+    @Query("SELECT s FROM OrdenDeServicio s WHERE s.entregado = false AND s.estado.id != 'SOCAN' ORDER BY s.fechaIngreso ASC")
     List<OrdenDeServicio> findServiciosPendientes();
     
     @Query("SELECT s FROM OrdenDeServicio s WHERE s.vencimientoGarantia IS NOT NULL AND s.vencimientoGarantia >= :hoy AND s.vencimientoGarantia <= :proximosDias ORDER BY s.vencimientoGarantia ASC")
@@ -54,26 +54,29 @@ public interface OrdenDeServicioRepository extends JpaRepository<OrdenDeServicio
      * ese tipo_evento en la base de datos.
      */
     @Query("SELECT s FROM OrdenDeServicio s " +
-           "WHERE s.estado IN (SELECT te.categoria FROM Evento te WHERE te.nombre = 'ORDEN_SERVICIO_CREADA') " +
+           "WHERE s.estado.nombre = 'ORDEN_SERVICIO_CREADA' " +
            "ORDER BY s.fechaIngreso DESC")
     List<OrdenDeServicio> findOrdenesParaAsignar();
 
     /**
-     * Regla 4: devuelve las órdenes asignadas al técnico cuyo username coincide
-     * con la columna tecnico_asignado_username de la entidad.
+     * Regla 4: devuelve las órdenes asignadas al técnico autenticado que aún
+     * no han sido entregadas.
      */
     @Query("SELECT s FROM OrdenDeServicio s " +
            "WHERE s.tecnicoAsignado.username = :username " +
+           "AND s.entregado = false " +
            "ORDER BY s.fechaIngreso DESC")
     List<OrdenDeServicio> findByTecnicoAsignadoUsername(@Param("username") String username);
 
     /**
-     * Devuelve órdenes listas para entregar: estado = LISTA o REPARADA.
-     * Usa subquery sobre tipo_evento.nombre para ser robusto ante distintos códigos en BD.
+     * Devuelve órdenes listas para entregar: estado = LISTA o REPARADA y todos
+     * sus servicios activos marcados como reparados.
      */
     @Query("SELECT s FROM OrdenDeServicio s " +
-           "WHERE s.estado IN (SELECT te.categoria FROM Evento te " +
-           "  WHERE te.nombre IN ('ORDEN_SERVICIO_LISTA', 'ORDEN_SERVICIO_REPARADA')) " +
+           "WHERE s.entregado = false " +
+           "AND s.estado.nombre IN ('ORDEN_SERVICIO_LISTA', 'ORDEN_SERVICIO_REPARADA') " +
+           "AND EXISTS (SELECT d1 FROM OrdenDeServicioDetalle d1 WHERE d1.ordenDeServicio = s AND d1.activo = true) " +
+           "AND NOT EXISTS (SELECT d2 FROM OrdenDeServicioDetalle d2 WHERE d2.ordenDeServicio = s AND d2.activo = true AND d2.reparado = false) " +
            "ORDER BY s.fechaIngreso DESC")
     List<OrdenDeServicio> findOrdenesParaEntregar();
 }

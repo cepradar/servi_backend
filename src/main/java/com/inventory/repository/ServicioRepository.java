@@ -11,6 +11,7 @@ import java.util.Optional;
 public interface ServicioRepository extends JpaRepository<Servicio, Long> {
     boolean existsByCodigo(String codigo);
     Optional<Servicio> findByCodigo(String codigo);
+    Optional<Servicio> findByNombreIgnoreCaseAndActivoTrue(String nombre);
     List<Servicio> findByActivoTrue();
     List<Servicio> findByCategoriaServicio(String categoriaServicio);
     List<Servicio> findByActivoTrueOrderByNombreAsc();
