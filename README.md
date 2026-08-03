@@ -12,8 +12,8 @@ Provee autenticación JWT, control de acceso basado en roles (RBAC), gestión de
 2. [Configuración rápida](#configuración-rápida)
 3. [Variables de entorno](#variables-de-entorno)
 4. [Ejecución en desarrollo](#ejecución-en-desarrollo)
-5. [Instalación directa en servidor (sin Docker)](#instalación-directa-en-servidor-sin-docker)
-6. [Ejecución con Docker](#ejecución-con-docker)
+5. [Generación del ejecutable JAR](#generación-del-ejecutable-jar)
+6. [Instalación directa en servidor](#instalación-directa-en-servidor)
 7. [API Endpoints principales](#api-endpoints-principales)
 8. [Swagger UI](#swagger-ui)
 9. [Estructura del proyecto](#estructura-del-proyecto)
@@ -29,7 +29,6 @@ Provee autenticación JWT, control de acceso basado en roles (RBAC), gestión de
 | Java (JDK) | 17 |
 | Maven | 3.9+ (incluido el wrapper `mvnw`) |
 | PostgreSQL | 14+ |
-| Docker *(opcional)* | 24+ |
 
 ---
 
@@ -89,7 +88,29 @@ El servidor arranca en `http://localhost:8080`.
 
 ---
 
-## Instalación directa en servidor (sin Docker)
+## Generación del ejecutable JAR
+
+Genera el artefacto ejecutable con Maven Wrapper:
+
+```bash
+# Linux/macOS
+./mvnw clean package
+
+# Windows
+mvnw.cmd clean package
+```
+
+El artefacto generado queda en `target/` con nombre `inventory-backend-<version>.jar`.
+
+Para ejecutarlo:
+
+```bash
+java -jar target/inventory-backend-*.jar
+```
+
+---
+
+## Instalación directa en servidor
 
 Estas instrucciones dejan el backend corriendo como servicio `systemd` en Debian/Ubuntu. La aplicación ya soporta esta modalidad con `.env` y un `jar` empaquetado.
 
@@ -97,7 +118,7 @@ Estas instrucciones dejan el backend corriendo como servicio `systemd` en Debian
 
 ```bash
 sudo apt update
-sudo apt install -y openjdk-17-jre-headless postgresql-client curl
+sudo apt install -y openjdk-17-jdk-headless postgresql-client curl
 java -version
 ```
 
@@ -165,27 +186,38 @@ journalctl -u inventory-backend -f
 
 ---
 
-## Ejecución con Docker
+## Despliegue automático con GitHub Actions
 
-### Solo el backend (requiere PostgreSQL externo)
+El repositorio incluye:
 
-```bash
-docker build -t inventory-backend .
-docker run -p 8080:8080 \
-  -e DB_URL=jdbc:postgresql://host.docker.internal:5432/SERVI \
-  -e DB_USER=postgres \
-  -e DB_PASSWORD=tu_password \
-  -e JWT_SECRET=tu_secreto_jwt \
-  inventory-backend
-```
+- `deploy/remote-deploy.sh`: script de despliegue remoto seguro para Linux.
+- `.github/workflows/deploy.yml`: workflow que valida el backend y actualiza el servidor por SSH cuando hay `push` a `master` con cambios relevantes.
 
-### Backend + PostgreSQL con Docker Compose
+### Requisitos del servidor para este flujo
 
-```bash
-cp .env.example .env
-# Editar .env
-docker compose up -d
-```
+1. El repositorio debe existir ya clonado en la ruta configurada en `DEPLOY_PATH`.
+2. El servidor debe tener `git`, `bash`, `curl`, `openssh-client`, `systemd` y **JDK 17**.
+3. La configuración privada debe vivir fuera del control de versiones, por ejemplo:
+   - `/opt/inventory-backend/.env`
+   - `/opt/inventory-backend/config/application-production.properties`
+4. El usuario de despliegue debe poder ejecutar `systemctl restart inventory-backend`, `systemctl is-active inventory-backend`, `systemctl status inventory-backend` y `journalctl -u inventory-backend` vía `sudo` sin contraseña.
+
+### Qué hace el workflow
+
+1. Arranca PostgreSQL en GitHub Actions.
+2. Ejecuta `./mvnw --batch-mode clean verify`.
+3. Sube el script de despliegue al servidor por SSH.
+4. Verifica que la ruta remota sea un clon del repositorio correcto y que no haya cambios locales controlados.
+5. Hace `git fetch`, actualiza exactamente al commit del workflow y compila el JAR en el servidor.
+6. Reemplaza `app.jar` solo si la compilación fue correcta.
+7. Reinicia únicamente `inventory-backend`.
+8. Verifica `systemctl`, el proceso, el puerto y `http://127.0.0.1:8080/actuator/health/readiness`.
+
+### Nota sobre rollback
+
+El script implementa rollback básico del `app.jar` y del commit anterior únicamente cuando el despliegue no incluye cambios en `src/main/resources/db/migration/`.
+
+Si el commit despliega migraciones Flyway, el rollback automático se desactiva para evitar inconsistencias de esquema.
 
 ---
 
@@ -258,12 +290,12 @@ src/main/resources/
 
 ## Producción
 
-1. Configurar variables de entorno en el servidor/contenedor.
+1. Configurar variables de entorno en el servidor.
 2. Cambiar `DDL_AUTO=validate`.
 3. Generar secreto JWT seguro: `openssl rand -base64 64`.
 4. Asegurarse de que `APP_CORS_ORIGINS` apunte al dominio del frontend.
 5. Verificar `http://localhost:8080/actuator/health/readiness`.
-6. Si se despliega sin Docker, registrar el backend como servicio `systemd`.
+6. Registrar el backend como servicio `systemd` cuando aplique.
 7. Activar HTTPS mediante un proxy inverso (Nginx, Traefik, etc.).
 
 ---

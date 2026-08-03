@@ -36,9 +36,9 @@ reports-storage/*.pdf
 reports-storage/*.xlsx
 reports-storage/*.xls
 
-# ── Docker ───────────────────────────────────────────────────
-.dockerignore
-
 # ── Archivos de log del servidor ─────────────────────────────
 *.log
 nohup.out
+
+# ── Artefactos de despliegue automático ──────────────────────
+.deploy-backups/

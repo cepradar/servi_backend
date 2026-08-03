@@ -1,0 +1,118 @@
+name: Deploy inventory-backend
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/deploy.yml"
+      - ".mvn/**"
+      - "mvnw"
+      - "mvnw.cmd"
+      - "pom.xml"
+      - "src/**"
+      - "deploy/**"
+  workflow_dispatch:
+
+concurrency:
+  group: inventory-backend-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "17"
+  DEPLOY_BRANCH: "master"
+  EXPECTED_JAR_GLOB: "target/inventory-backend-*.jar"
+
+jobs:
+  validate:
+    name: Validate and test backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: SERVI
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d SERVI"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SPRING_PROFILES_ACTIVE: development
+      DB_URL: jdbc:postgresql://localhost:5432/SERVI
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: 0123456789012345678901234567890123456789012345678901234567890123
+      JWT_EXPIRATION_MS: "36000000"
+      APP_CORS_ORIGINS: http://localhost:5173
+      SERVER_PORT: "8080"
+      REPORTS_STORAGE_PATH: ./reports-storage
+      DDL_AUTO: update
+      FLYWAY_ENABLED: "false"
+      JPA_SHOW_SQL: "false"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x ./mvnw
+
+      - name: Run build and tests
+        run: ./mvnw --batch-mode clean verify
+
+  deploy:
+    name: Deploy to production server
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: validate
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Upload deployment script
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT != '' && secrets.SSH_PORT || '22' }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          chmod 700 deploy/remote-deploy.sh
+          ssh -o StrictHostKeyChecking=yes -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'install -m 700 -d ~/.cache/github-actions'
+          scp -o StrictHostKeyChecking=yes -P "$SSH_PORT" deploy/remote-deploy.sh "$SSH_USER@$SSH_HOST:~/.cache/github-actions/inventory-backend-deploy.sh"
+
+      - name: Execute deployment
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT != '' && secrets.SSH_PORT || '22' }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SERVICE: ${{ secrets.DEPLOY_SERVICE != '' && secrets.DEPLOY_SERVICE || 'inventory-backend' }}
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: |
+          ssh -o StrictHostKeyChecking=yes -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "bash ~/.cache/github-actions/inventory-backend-deploy.sh $(printf '%q ' "$DEPLOY_PATH" "${DEPLOY_BRANCH}" "${GITHUB_SHA}" "${DEPLOY_SERVICE}" "${GITHUB_REPOSITORY}" "${EXPECTED_JAR_GLOB}" "${HEALTHCHECK_URL:-}")"
